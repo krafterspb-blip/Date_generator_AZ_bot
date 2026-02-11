@@ -9,7 +9,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-TOKEN = os.getenv("8063272905:AAF7gGyOsHr0x8tLDrolaFQpP6xJVdrxUWM")
+TOKEN = "8063272905:AAF7gGyOsHr0x8tLDrolaFQpP6xJVdrxUWM"
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 router = Router()
