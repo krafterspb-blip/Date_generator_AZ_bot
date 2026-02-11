@@ -1,7 +1,7 @@
 import asyncio
-from aiogram import Bot, Dispatcher, Router, F
+from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -9,165 +9,131 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-TOKEN = os.getenv("BOT_TOKEN", "8063272905:AAF7gGyOsHr0x8tLDrolaFQpP6xJVdrxUWM")
-
+TOKEN = os.getenv("8063272905:AAF7gGyOsHr0x8tLDrolaFQpP6xJVdrxUWM")
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 router = Router()
 
-class GeneratorForm(StatesGroup):
-    start_date = State()
-    end_date = State()
-    work_days = State()
-    work_hours = State()
-    num_entries = State()
+class Gen(StatesGroup):
+    start = State()
+    end = State()
+    days = State()
+    hours = State()
+    count = State()
 
 @router.message(CommandStart())
-async def cmd_start(message: Message):
-    await message.answer(
-        "👋 Привет! Я генератор временных меток для Avito.\n\n"
-        "✨ Возможности:\n"
-        "• Выбор периода публикаций\n"
-        "• Настройка рабочих дней\n"
-        "• Настройка рабочих часов\n"
-        "• Генерация Excel-файла\n\n"
-        "📝 Отправь /generate чтобы начать"
-    )
+async def start(m: Message):
+    await m.answer("Привет! Отправь /generate")
 
 @router.message(Command("generate"))
-async def start_generation(message: Message, state: FSMContext):
-    await message.answer(
-        "📅 Введите дату и время начала\n"
-        "Формат: ГГГГ-ММ-ДД ЧЧ:ММ\n\n"
-        "Пример: 2026-02-12 09:00"
-    )
-    await state.set_state(GeneratorForm.start_date)
+async def gen(m: Message, state: FSMContext):
+    await m.answer("Введите дату начала (2026-02-12 09:00):")
+    await state.set_state(Gen.start)
 
-@router.message(GeneratorForm.start_date)
-async def process_start_date(message: Message, state: FSMContext):
+@router.message(Gen.start)
+async def get_start(m: Message, state: FSMContext):
     try:
-        start_dt = datetime.strptime(message.text, "%Y-%m-%d %H:%M")
-        await state.update_data(start_date=start_dt)
-        await message.answer(
-            "📅 Теперь дату и время окончания\n"
-            "Формат: ГГГГ-ММ-ДД ЧЧ:ММ\n\n"
-            "Пример: 2026-02-20 18:00"
-        )
-        await state.set_state(GeneratorForm.end_date)
+        dt = datetime.strptime(m.text, "%Y-%m-%d %H:%M")
+        await state.update_data(start=dt)
+        await m.answer("Введите дату окончания (2026-02-20 18:00):")
+        await state.set_state(Gen.end)
     except:
-        await message.answer("❌ Неверный формат даты.\nПопробуйте снова: 2026-02-12 09:00")
+        await m.answer("Ошибка! Пример: 2026-02-12 09:00")
 
-@router.message(GeneratorForm.end_date)
-async def process_end_date(message: Message, state: FSMContext):
+@router.message(Gen.end)
+async def get_end(m: Message, state: FSMContext):
     try:
-        end_dt = datetime.strptime(message.text, "%Y-%m-%d %H:%M")
+        dt = datetime.strptime(m.text, "%Y-%m-%d %H:%M")
+        await state.update_data(end=dt)
+        await m.answer("Введите рабочие дни через запятую\nПример: 0,1,2,3,4 (0=Пн, 6=Вс)\nИли 0,1,2,3,4,5,6 для всех дней")
+        await state.set_state(Gen.days)
+    except:
+        await m.answer("Ошибка! Пример: 2026-02-20 18:00")
+
+@router.message(Gen.days)
+async def get_days(m: Message, state: FSMContext):
+    try:
+        days = [int(x.strip()) for x in m.text.split(",")]
+        await state.update_data(days=days)
+        await m.answer("Введите рабочие часы\nПример: 6-23")
+        await state.set_state(Gen.hours)
+    except:
+        await m.answer("Ошибка! Пример: 0,1,2,3,4")
+
+@router.message(Gen.hours)
+async def get_hours(m: Message, state: FSMContext):
+    try:
+        h = m.text.split("-")
+        await state.update_data(h_start=int(h[0]), h_end=int(h[1]))
+        await m.answer("Сколько объявлений?")
+        await state.set_state(Gen.count)
+    except:
+        await m.answer("Ошибка! Пример: 6-23")
+
+@router.message(Gen.count)
+async def make_file(m: Message, state: FSMContext):
+    try:
+        num = int(m.text)
         data = await state.get_data()
+        await m.answer("Генерирую...")
         
-        if end_dt <= data['start_date']:
-            await message.answer("❌ Дата окончания должна быть позже начала. Попробуйте снова:")
-            return
-            
-        await state.update_data(end_date=end_dt, selected_days=set())
+        times = gen_times(data['start'], data['end'], data['days'], 
+                         (data['h_start'], data['h_end']), num)
         
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="Пн", callback_data="day_0"),
-                    InlineKeyboardButton(text="Вт", callback_data="day_1"),
-                    InlineKeyboardButton(text="Ср", callback_data="day_2"),
-                    InlineKeyboardButton(text="Чт", callback_data="day_3")
-                ],
-                [
-                    InlineKeyboardButton(text="Пт", callback_data="day_4"),
-                    InlineKeyboardButton(text="Сб", callback_data="day_5"),
-                    InlineKeyboardButton(text="Вс", callback_data="day_6")
-                ],
-                [InlineKeyboardButton(text="✅ Все дни", callback_data="all_days")],
-                [InlineKeyboardButton(text="➡️ Далее", callback_data="days_done")]
-            ]
-        )
+        df = pd.DataFrame([[t.strftime("%Y-%m-%d %H:%M")] for t in times], 
+                         columns=["Дата и время"])
         
-        await message.answer(
-            "📆 Выберите рабочие дни недели:\n"
-            "Нажимайте на кнопки, чтобы выбрать/убрать дни\n\n"
-            "Выбрано: нет",
-            reply_markup=keyboard
-        )
-        await state.set_state(GeneratorForm.work_days)
-    except:
-        await message.answer("❌ Неверный формат даты.\nПопробуйте снова: 2026-02-20 18:00")
+        fname = f"metki_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        df.to_excel(fname, index=False)
+        
+        file = FSInputFile(fname)
+        await m.answer_document(document=file, caption=f"Готово! {len(times)} меток")
+        os.remove(fname)
+        await state.clear()
+    except Exception as e:
+        await m.answer(f"Ошибка: {e}")
+        await state.clear()
 
-@router.callback_query(F.data.startswith("day_"), GeneratorForm.work_days)
-async def toggle_day(callback: CallbackQuery, state: FSMContext):
-    day = int(callback.data.split("_")[1])
-    data = await state.get_data()
-    selected_days = data.get("selected_days", set())
+def gen_times(start, end, days, hours, count):
+    intervals = []
+    cur = start.date()
     
-    if day in selected_days:
-        selected_days.remove(day)
+    while cur <= end.date():
+        if cur.weekday() in days:
+            d_start = datetime.combine(cur, datetime.min.time()) + timedelta(hours=hours[0])
+            d_end = datetime.combine(cur, datetime.min.time()) + timedelta(hours=hours[1])
+            i_start = max(start, d_start)
+            i_end = min(end, d_end)
+            if i_start < i_end:
+                intervals.append((i_start, i_end))
+        cur += timedelta(days=1)
+    
+    if not intervals:
+        return []
+    
+    total = sum((e - s).total_seconds() for s, e in intervals)
+    times = []
+    
+    if count == 1:
+        times.append(start)
     else:
-        selected_days.add(day)
+        for i in range(count):
+            prog = i / (count - 1)
+            target = prog * total
+            acc = 0
+            for s, e in intervals:
+                dur = (e - s).total_seconds()
+                if acc + dur >= target:
+                    times.append(s + timedelta(seconds=(target - acc)))
+                    break
+                acc += dur
     
-    await state.update_data(selected_days=selected_days)
-    
-    days_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-    selected_names = [days_names[d] for d in sorted(selected_days)]
-    
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text=f"{'✅' if 0 in selected_days else ''}Пн", callback_data="day_0"),
-                InlineKeyboardButton(text=f"{'✅' if 1 in selected_days else ''}Вт", callback_data="day_1"),
-                InlineKeyboardButton(text=f"{'✅' if 2 in selected_days else ''}Ср", callback_data="day_2"),
-                InlineKeyboardButton(text=f"{'✅' if 3 in selected_days else ''}Чт", callback_data="day_3")
-            ],
-            [
-                InlineKeyboardButton(text=f"{'✅' if 4 in selected_days else ''}Пт", callback_data="day_4"),
-                InlineKeyboardButton(text=f"{'✅' if 5 in selected_days else ''}Сб", callback_data="day_5"),
-                InlineKeyboardButton(text=f"{'✅' if 6 in selected_days else ''}Вс", callback_data="day_6")
-            ],
-            [InlineKeyboardButton(text="✅ Все дни", callback_data="all_days")],
-            [InlineKeyboardButton(text="➡️ Далее", callback_data="days_done")]
-        ]
-    )
-    
-    await callback.message.edit_text(
-        f"📆 Выберите рабочие дни недели:\n"
-        f"Нажимайте на кнопки, чтобы выбрать/убрать дни\n\n"
-        f"Выбрано: {', '.join(selected_names) if selected_names else 'нет'}",
-        reply_markup=keyboard
-    )
-    await callback.answer()
+    return times
 
-@router.callback_query(F.data == "all_days", GeneratorForm.work_days)
-async def select_all_days(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(selected_days={0, 1, 2, 3, 4, 5, 6})
-    
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅Пн", callback_data="day_0"),
-                InlineKeyboardButton(text="✅Вт", callback_data="day_1"),
-                InlineKeyboardButton(text="✅Ср", callback_data="day_2"),
-                InlineKeyboardButton(text="✅Чт", callback_data="day_3")
-            ],
-            [
-                InlineKeyboardButton(text="✅Пт", callback_data="day_4"),
-                InlineKeyboardButton(text="✅Сб", callback_data="day_5"),
-                InlineKeyboardButton(text="✅Вс", callback_data="day_6")
-            ],
-            [InlineKeyboardButton(text="✅ Все дни", callback_data="all_days")],
-            [InlineKeyboardButton(text="➡️ Далее", callback_data="days_done")]
-        ]
-    )
-    
-    await callback.message.edit_text(
-        "📆 Выберите рабочие дни недели:\n"
-        "Нажимайте на кнопки, чтобы выбрать/убрать дни\n\n"
-        "Выбрано: Пн, Вт, Ср, Чт, Пт, Сб, Вс",
-        reply_markup=keyboard
-    )
-    await callback.answer("Все дни выбраны ✅")
+async def main():
+    dp.include_router(router)
+    print("Бот запущен!")
+    await dp.start_polling(bot)
 
-@router.callback_query(F.data == "days_done", GeneratorForm.work_days)
-async def finish_d
+if __name__ == "__main__":
+    asyncio.run(main())
