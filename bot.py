@@ -69,26 +69,23 @@ async def process_end_date(message: Message, state: FSMContext):
             
         await state.update_data(end_date=end_dt, selected_days=set())
         
-        # Клавиатура для выбора дней недели
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Пн", callback_data="day_0"),
-                InlineKeyboardButton(text="Вт", callback_data="day_1"),
-                InlineKeyboardButton(text="Ср", callback_data="day_2"),
-                InlineKeyboardButton(text="Чт", callback_data="day_3")
-            ],
-            [
-                InlineKeyboardButton(text="Пт", callback_data="day_4"),
-                InlineKeyboardButton(text="Сб", callback_data="day_5"),
-                InlineKeyboardButton(text="Вс", callback_data="day_6")
-            ],
-            [
-                InlineKeyboardButton(text="✅ Все дни", callback_data="all_days")
-            ],
-            [
-                InlineKeyboardButton(text="➡️ Далее", callback_data="days_done")
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="Пн", callback_data="day_0"),
+                    InlineKeyboardButton(text="Вт", callback_data="day_1"),
+                    InlineKeyboardButton(text="Ср", callback_data="day_2"),
+                    InlineKeyboardButton(text="Чт", callback_data="day_3")
+                ],
+                [
+                    InlineKeyboardButton(text="Пт", callback_data="day_4"),
+                    InlineKeyboardButton(text="Сб", callback_data="day_5"),
+                    InlineKeyboardButton(text="Вс", callback_data="day_6")
+                ],
+                [InlineKeyboardButton(text="✅ Все дни", callback_data="all_days")],
+                [InlineKeyboardButton(text="➡️ Далее", callback_data="days_done")]
             ]
-        ])
+        )
         
         await message.answer(
             "📆 Выберите рабочие дни недели:\n"
@@ -113,14 +110,64 @@ async def toggle_day(callback: CallbackQuery, state: FSMContext):
     
     await state.update_data(selected_days=selected_days)
     
-    # Обновляем текст сообщения
     days_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
     selected_names = [days_names[d] for d in sorted(selected_days)]
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=f"{'✅' if 0 in selected_days else ''}Пн", callback_data="day_0"),
-            InlineKeyboardButton(text=f"{'✅' if 1 in selected_days else ''}Вт", callback_data="day_1"),
-            InlineKeyboardButton(text=f"{'✅' if 2 in selected_days else ''}Ср", callback_data="day_2"),
-            InlineKeyboardButton(text=f"{'✅' if 3 in selected_days else ''}Чт", callback_data="day_3")
-        
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"{'✅' if 0 in selected_days else ''}Пн", callback_data="day_0"),
+                InlineKeyboardButton(text=f"{'✅' if 1 in selected_days else ''}Вт", callback_data="day_1"),
+                InlineKeyboardButton(text=f"{'✅' if 2 in selected_days else ''}Ср", callback_data="day_2"),
+                InlineKeyboardButton(text=f"{'✅' if 3 in selected_days else ''}Чт", callback_data="day_3")
+            ],
+            [
+                InlineKeyboardButton(text=f"{'✅' if 4 in selected_days else ''}Пт", callback_data="day_4"),
+                InlineKeyboardButton(text=f"{'✅' if 5 in selected_days else ''}Сб", callback_data="day_5"),
+                InlineKeyboardButton(text=f"{'✅' if 6 in selected_days else ''}Вс", callback_data="day_6")
+            ],
+            [InlineKeyboardButton(text="✅ Все дни", callback_data="all_days")],
+            [InlineKeyboardButton(text="➡️ Далее", callback_data="days_done")]
+        ]
+    )
+    
+    await callback.message.edit_text(
+        f"📆 Выберите рабочие дни недели:\n"
+        f"Нажимайте на кнопки, чтобы выбрать/убрать дни\n\n"
+        f"Выбрано: {', '.join(selected_names) if selected_names else 'нет'}",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "all_days", GeneratorForm.work_days)
+async def select_all_days(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(selected_days={0, 1, 2, 3, 4, 5, 6})
+    
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅Пн", callback_data="day_0"),
+                InlineKeyboardButton(text="✅Вт", callback_data="day_1"),
+                InlineKeyboardButton(text="✅Ср", callback_data="day_2"),
+                InlineKeyboardButton(text="✅Чт", callback_data="day_3")
+            ],
+            [
+                InlineKeyboardButton(text="✅Пт", callback_data="day_4"),
+                InlineKeyboardButton(text="✅Сб", callback_data="day_5"),
+                InlineKeyboardButton(text="✅Вс", callback_data="day_6")
+            ],
+            [InlineKeyboardButton(text="✅ Все дни", callback_data="all_days")],
+            [InlineKeyboardButton(text="➡️ Далее", callback_data="days_done")]
+        ]
+    )
+    
+    await callback.message.edit_text(
+        "📆 Выберите рабочие дни недели:\n"
+        "Нажимайте на кнопки, чтобы выбрать/убрать дни\n\n"
+        "Выбрано: Пн, Вт, Ср, Чт, Пт, Сб, Вс",
+        reply_markup=keyboard
+    )
+    await callback.answer("Все дни выбраны ✅")
+
+@router.callback_query(F.data == "days_done", GeneratorForm.work_days)
+async def finish_d
